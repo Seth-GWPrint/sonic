@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import mysql from "mysql2/promise";
 
 type BigCommerceOrder = {
   id: number;
@@ -41,6 +42,36 @@ type FlattenedOrderRow = {
   product_total_inc_tax: string;
   product_sku: string;
 };
+
+type ExistingOrderIdRow = {
+  id: number;
+};
+
+function getDbConfig() {
+  const host = process.env.DB_HOST;
+  const user = process.env.DB_USER;
+  const password = process.env.DB_PASSWORD;
+  const database = process.env.DB_NAME;
+  const port = Number(process.env.DB_PORT || 3306);
+
+  if (!host || !user || !password || !database) {
+    throw new Error(
+      "Missing database credentials. Check DB_HOST, DB_USER, DB_PASSWORD, and DB_NAME."
+    );
+  }
+
+  return {
+    host,
+    user,
+    password,
+    database,
+    port,
+  };
+}
+
+async function getConnection() {
+  return mysql.createConnection(getDbConfig());
+}
 
 async function bigCommerceFetch<T>(path: string): Promise<T> {
   const storeHash = process.env.BC_STORE_HASH;
@@ -143,27 +174,124 @@ function flattenOrderProducts(
   }));
 }
 
+function normalizeDateForMySQL(dateString: string) {
+  if (!dateString) return null;
+
+  const date = new Date(dateString);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+async function getExistingOrderIds(
+  connection: mysql.Connection,
+  orderIds: number[]
+) {
+  if (!orderIds.length) {
+    return new Set<number>();
+  }
+
+  const [rows] = await connection.query(
+    `
+    SELECT DISTINCT id
+    FROM bigcommerce_orders
+    WHERE id IN (?)
+    `,
+    [orderIds]
+  );
+
+  return new Set((rows as ExistingOrderIdRow[]).map((row) => row.id));
+}
+
+async function saveRowsToDatabase(
+  connection: mysql.Connection,
+  rows: FlattenedOrderRow[]
+) {
+  if (!rows.length) {
+    return {
+      insertedRows: 0,
+    };
+  }
+
+  const values = rows.map((row) => [
+    row.id,
+    row.customer_id || null,
+    normalizeDateForMySQL(row.date_created),
+    row.status_id || null,
+    row.status || null,
+    row.subtotal_ex_tax || null,
+    row.staff_notes || null,
+    row.customer_message || null,
+    row.custom_status || null,
+    row.product_name || null,
+    row.product_quantity || 0,
+    row.product_total_ex_tax || null,
+    row.product_total_inc_tax || null,
+    row.product_sku || "",
+  ]);
+
+  const [result] = await connection.query(
+    `
+    INSERT IGNORE INTO bigcommerce_orders (
+      id,
+      customer_id,
+      date_created,
+      status_id,
+      status,
+      subtotal_ex_tax,
+      staff_notes,
+      customer_message,
+      custom_status,
+      product_name,
+      product_quantity,
+      product_total_ex_tax,
+      product_total_inc_tax,
+      product_sku
+    )
+    VALUES ?
+    `,
+    [values]
+  );
+
+  return {
+    insertedRows: "affectedRows" in result ? result.affectedRows : 0,
+  };
+}
+
 export async function GET() {
+  const connection = await getConnection();
+
   try {
     const orders = await bigCommerceFetch<BigCommerceOrder[]>(
-      "/v2/orders?limit=100&page=1"
+      "/v2/orders?sort=date_created:desc&limit=100&page=1"
     );
+
+    const orderIds = orders.map((order) => order.id);
+    const existingOrderIds = await getExistingOrderIds(connection, orderIds);
+
+    const newOrders = orders.filter((order) => !existingOrderIds.has(order.id));
 
     const rows: FlattenedOrderRow[] = [];
 
-    // Important:
-    // Do this sequentially at first to avoid "Too many simultaneous requests".
-    // Once it works, we can upgrade this to small batches of 3-5 at a time.
-    for (const order of orders) {
+    for (const order of newOrders) {
       const products = await getProductsForOrder(order.id);
       const orderRows = flattenOrderProducts(order, products);
 
       rows.push(...orderRows);
     }
 
+    const dbResult = await saveRowsToDatabase(connection, rows);
+
     return NextResponse.json({
-      orderCount: orders.length,
+      success: true,
+      fetchedOrderCount: orders.length,
+      existingOrderCount: existingOrderIds.size,
+      newOrderCount: newOrders.length,
       rowCount: rows.length,
+      insertedRows: dbResult.insertedRows,
       rows,
     });
   } catch (error) {
@@ -171,6 +299,7 @@ export async function GET() {
 
     return NextResponse.json(
       {
+        success: false,
         error:
           error instanceof Error
             ? error.message
@@ -178,5 +307,7 @@ export async function GET() {
       },
       { status: 500 }
     );
+  } finally {
+    await connection.end();
   }
 }

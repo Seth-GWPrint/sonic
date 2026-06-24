@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type OrderSpreadsheetRow = {
   id: number;
@@ -50,13 +50,14 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const handleImportOrders = async () => {
+  const handleLoadOrders = async () => {
     setIsLoading(true);
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/import-orders", {
+      const response = await fetch("/api/pull-orders-from-db", {
         method: "GET",
+        cache: "no-store",
       });
 
       const rawText = await response.text();
@@ -70,7 +71,7 @@ export default function Home() {
       }
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to import orders.");
+        throw new Error(data.error || "Failed to load orders from database.");
       }
 
       setRows(data.rows || []);
@@ -80,12 +81,16 @@ export default function Home() {
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Something went wrong while importing orders."
+          : "Something went wrong while loading orders from the database."
       );
     } finally {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    handleLoadOrders();
+  }, []);
 
   return (
     <div className="min-h-screen bg-zinc-50 p-8 font-sans text-zinc-900">
@@ -107,18 +112,18 @@ export default function Home() {
               Order Spreadsheet
             </h1>
             <p className="mt-1 text-sm text-zinc-500">
-              Import the latest 100 BigCommerce orders. Orders with multiple
-              products will appear as multiple rows.
+              Showing the most recent 100 product line rows stored in MySQL.
+              Orders with multiple products will appear as multiple rows.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={handleImportOrders}
+            onClick={handleLoadOrders}
             disabled={isLoading}
             className="rounded-xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isLoading ? "Importing..." : "Import Orders"}
+            {isLoading ? "Loading..." : "Load Orders From DB"}
           </button>
         </div>
 
@@ -172,7 +177,7 @@ export default function Home() {
                       colSpan={columns.length}
                       className="px-4 py-12 text-center text-sm text-zinc-400"
                     >
-                      No orders imported yet.
+                      No orders found in the database.
                     </td>
                   </tr>
                 )}
