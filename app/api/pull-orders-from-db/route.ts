@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import mysql from "mysql2/promise";
+import mysql, {RowDataPacket} from "mysql2/promise";
 
-type OrderSpreadsheetRow = {
+type OrderSpreadsheetRow = RowDataPacket & {
   id: number;
   customer_id: number | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  customer_company: string | null;
   date_created: string | null;
   status_id: number | null;
   status: string | null;
@@ -23,60 +27,65 @@ function getDbConfig() {
   const user = process.env.DB_USER;
   const password = process.env.DB_PASSWORD;
   const database = process.env.DB_NAME;
-  const port = Number(process.env.DB_PORT || 3306);
 
   if (!host || !user || !password || !database) {
-    throw new Error(
-      "Missing database credentials. Check DB_HOST, DB_USER, DB_PASSWORD, and DB_NAME."
-    );
+    throw new Error("Missing database environment variables.");
   }
 
-  return {
-    host,
-    user,
-    password,
-    database,
-    port,
-  };
-}
-
-async function getConnection() {
-  return mysql.createConnection(getDbConfig());
+  return { host, user, password, database };
 }
 
 export async function GET() {
-  const connection = await getConnection();
+  let connection: mysql.Connection | null = null;
 
   try {
-    const [rows] = await connection.query(
+    connection = await mysql.createConnection(getDbConfig());
+
+    const [rows] = await connection.execute<OrderSpreadsheetRow[]>(
       `
       SELECT
-        id,
-        customer_id,
-        date_created,
-        status_id,
-        status,
-        subtotal_ex_tax,
-        staff_notes,
-        customer_message,
-        custom_status,
-        product_name,
-        product_quantity,
-        product_total_ex_tax,
-        product_total_inc_tax,
-        product_sku
-      FROM bigcommerce_orders
-      ORDER BY date_created DESC, id DESC
+        o.id,
+        o.customer_id,
+
+        CONCAT_WS(' ', c.first_name, c.last_name) AS customer_name,
+        c.email AS customer_email,
+        c.phone AS customer_phone,
+        c.company AS customer_company,
+
+        o.date_created,
+        o.status_id,
+        o.status,
+        o.subtotal_ex_tax,
+        o.staff_notes,
+        o.customer_message,
+        o.custom_status,
+
+        p.product_name,
+        p.product_quantity,
+        p.product_total_ex_tax,
+        p.product_total_inc_tax,
+        p.product_sku
+
+      FROM bigcommerce_orders o
+
+      LEFT JOIN bigcommerce_customers c
+        ON c.id = o.customer_id
+
+      LEFT JOIN bigcommerce_products p
+        ON p.order_id = o.id
+
+      ORDER BY o.id DESC, p.id ASC
+
       LIMIT 100
       `
     );
 
     return NextResponse.json({
       success: true,
-      rows: rows as OrderSpreadsheetRow[],
+      rows,
     });
   } catch (error) {
-    console.error("Load orders from database error:", error);
+    console.error("Failed to pull orders from database:", error);
 
     return NextResponse.json(
       {
@@ -84,11 +93,13 @@ export async function GET() {
         error:
           error instanceof Error
             ? error.message
-            : "Unexpected server error while loading orders from database.",
+            : "Failed to pull orders from database.",
       },
       { status: 500 }
     );
   } finally {
-    await connection.end();
+    if (connection) {
+      await connection.end();
+    }
   }
 }
