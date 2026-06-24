@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type OrderSpreadsheetRow = {
@@ -53,6 +54,12 @@ type OrderStatusOption = {
   name: string;
 };
 
+type StatusColorRow = {
+  id: number;
+  name: string;
+  color: string;
+};
+
 const ORDER_STATUS_OPTIONS: OrderStatusOption[] = [
   { id: 0, name: "Incomplete" },
   { id: 1, name: "Pending" },
@@ -91,13 +98,51 @@ export default function Home() {
 
   const [savingOrderIds, setSavingOrderIds] = useState<number[]>([]);
   const [statusUpdateMessage, setStatusUpdateMessage] = useState("");
+  const [statusColorMap, setStatusColorMap] = useState<Record<number, string>>({});
+
+  const handleLoadStatusColors = async () => {
+    try {
+      const response = await fetch("/api/sonic/get-status-colors", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const rawText = await response.text();
+
+      let data: any;
+
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        throw new Error(rawText || "Server returned a non-JSON response.");
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to load status colors.");
+      }
+
+      const colorRows: StatusColorRow[] = data.rows || [];
+
+      const nextStatusColorMap = colorRows.reduce<Record<number, string>>(
+        (acc, status) => {
+          acc[status.id] = status.color;
+          return acc;
+        },
+        {}
+      );
+
+      setStatusColorMap(nextStatusColorMap);
+    } catch (error) {
+      console.error("Failed to load status colors:", error);
+    }
+  };
 
   const handleLoadOrders = async () => {
     setIsLoading(true);
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/pull-orders-from-db", {
+      const response = await fetch("/api/sonic/pull-orders-from-db", {
         method: "GET",
         cache: "no-store",
       });
@@ -148,7 +193,7 @@ export default function Home() {
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/update-order-status", {
+      const response = await fetch("/api/sonic/update-order-status", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -238,11 +283,12 @@ export default function Home() {
 
   useEffect(() => {
     handleLoadOrders();
+    handleLoadStatusColors();
   }, []);
 
   return (
     <div className="min-h-screen bg-zinc-50 p-8 font-sans text-zinc-900">
-      <div className="mb-6 flex items-center">
+      <div className="mb-6 flex items-center justify-between">
         <Image
           src="/sonic_dev_logo.png"
           alt="Sonic Dev Logo"
@@ -251,29 +297,16 @@ export default function Home() {
           className="h-auto w-[160px]"
           priority
         />
+
+        <Link
+          href="/settings"
+          className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
+        >
+          Settings
+        </Link>
       </div>
 
       <main className="mx-auto flex w-full max-w-[1800px] flex-col gap-6">
-        <div className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Order Spreadsheet
-            </h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              Showing the most recent 100 product line rows stored in MySQL.
-              Orders with multiple products will appear as multiple rows.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleLoadOrders}
-            disabled={isLoading}
-            className="rounded-xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isLoading ? "Loading..." : "Load Orders From DB"}
-          </button>
-        </div>
 
         <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
@@ -375,7 +408,13 @@ export default function Home() {
                   filteredRows.map((row, rowIndex) => (
                     <tr
                       key={`${row.id}-${row.product_sku}-${rowIndex}`}
-                      className="hover:bg-zinc-50"
+                      className="transition hover:brightness-95"
+                      style={{
+                        backgroundColor:
+                          row.status_id !== null && row.status_id !== undefined
+                            ? statusColorMap[row.status_id] || undefined
+                            : undefined,
+                      }}
                     >
                       {columns.map((column) => {
                         const isSavingThisOrder = savingOrderIds.includes(row.id);
@@ -384,7 +423,7 @@ export default function Home() {
                           return (
                             <td
                               key={`${rowIndex}-${column.key}`}
-                              className="min-w-[220px] border-b border-r border-zinc-100 px-3 py-2 align-top"
+                              className="min-w-[220px] border-b border-r border-zinc-300 px-3 py-2 align-top"
                             >
                               <select
                                 value={row.status_id ?? ""}
