@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 
 type OrderSpreadsheetRow = {
@@ -88,6 +89,17 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-zinc-50 p-8 font-sans text-zinc-900">
+      <div className="mb-6 flex items-center">
+        <Image
+          src="/sonic_dev_logo.png"
+          alt="Sonic Dev Logo"
+          width={140}
+          height={40}
+          className="h-auto w-[160px]"
+          priority
+        />
+      </div>
+
       <main className="mx-auto flex w-full max-w-[1800px] flex-col gap-6">
         <div className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
