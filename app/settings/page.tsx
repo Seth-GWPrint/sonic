@@ -36,11 +36,26 @@ export default function SettingsPage() {
   const [isStatusColorsOpen, setIsStatusColorsOpen] = useState(false);
   const [statusColors, setStatusColors] =
     useState<OrderStatusColor[]>(DEFAULT_STATUS_COLORS);
+  const [originalStatusColors, setOriginalStatusColors] =
+    useState<OrderStatusColor[]>(DEFAULT_STATUS_COLORS);
 
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isLoadingStatusColors, setIsLoadingStatusColors] = useState(false);
+
+  const handleLogOut = async () => {
+    try {
+      await fetch("/api/sonic/log-out", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout failed:", error);
+    } finally {
+      window.location.href = "/log-in";
+    }
+  };
 
   const handleOpenStatusColors = async () => {
     setErrorMessage("");
@@ -59,16 +74,19 @@ export default function SettingsPage() {
         let data: any;
 
         try {
-        data = rawText ? JSON.parse(rawText) : {};
+          data = rawText ? JSON.parse(rawText) : {};
         } catch {
-        throw new Error(rawText || "Server returned a non-JSON response.");
+          throw new Error(rawText || "Server returned a non-JSON response.");
         }
 
         if (!response.ok) {
-        throw new Error(data.error || "Failed to load status colors.");
+          throw new Error(data.error || "Failed to load status colors.");
         }
 
-        setStatusColors(data.rows || DEFAULT_STATUS_COLORS);
+        const loadedStatusColors = data.rows || DEFAULT_STATUS_COLORS;
+
+        setStatusColors(loadedStatusColors);
+        setOriginalStatusColors(loadedStatusColors);
     } catch (error) {
         console.error(error);
 
@@ -95,6 +113,57 @@ export default function SettingsPage() {
     );
   };
 
+  const handleSubmitAuditLog = async ({
+    entity_type,
+    entity_id,
+    action,
+    field_name = null,
+    old_value = null,
+    new_value = null,
+    metadata = null,
+  }: {
+    entity_type: string;
+    entity_id: number;
+    action: string;
+    field_name?: string | null;
+    old_value?: string | number | boolean | null;
+    new_value?: string | number | boolean | null;
+    metadata?: unknown;
+  }) => {
+    const response = await fetch("/api/sonic/update-audit-log", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        entity_type,
+        entity_id,
+        action,
+        field_name,
+        old_value,
+        new_value,
+        metadata,
+      }),
+    });
+
+    const rawText = await response.text();
+
+    let data: any;
+
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      throw new Error(rawText || "Server returned a non-JSON response.");
+    }
+
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to submit audit log.");
+    }
+
+    return data;
+  };
+
   const handleSaveStatusColors = async () => {
     setIsSaving(true);
     setErrorMessage("");
@@ -115,6 +184,8 @@ export default function SettingsPage() {
     try {
       await Promise.all(
         statusColors.map(async (status) => {
+          const newColor = status.color.trim();
+
           const response = await fetch("/api/sonic/update-status-color", {
             method: "PATCH",
             headers: {
@@ -122,7 +193,7 @@ export default function SettingsPage() {
             },
             body: JSON.stringify({
               statusId: status.id,
-              colorHex: status.color.trim(),
+              colorHex: newColor,
             }),
           });
 
@@ -141,9 +212,34 @@ export default function SettingsPage() {
               data.error || `Failed to update ${status.name} color.`
             );
           }
+
+          const originalStatus = originalStatusColors.find(
+            (original) => original.id === status.id
+          );
+
+          const oldColor = originalStatus?.color?.trim() ?? null;
+
+          if (oldColor !== newColor) {
+            await handleSubmitAuditLog({
+              entity_type: "status_color",
+              entity_id: status.id,
+              action: "status_color_changed",
+              field_name: "color",
+              old_value: oldColor,
+              new_value: newColor,
+              metadata: {
+                status_id: status.id,
+                status_name: status.name,
+                old_color: oldColor,
+                new_color: newColor,
+                source: "settings_status_colors_modal",
+              },
+            });
+          }
         })
       );
 
+      setOriginalStatusColors(statusColors);
       setSuccessMessage("Status colors saved.");
       setIsStatusColorsOpen(false);
     } catch (error) {
@@ -171,12 +267,22 @@ export default function SettingsPage() {
           priority
         />
 
-        <Link
-          href="/"
-          className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
-        >
-          Return
-        </Link>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleLogOut}
+            className="cursor-pointer rounded-xl border border-zinc-300 bg-[#AA0000] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#CC0000]"
+          >
+            Log Out
+          </button>
+
+          <Link
+            href="/"
+            className="cursor-pointer rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
+          >
+            Return
+          </Link>
+        </div>
       </div>
 
       <main className="mx-auto flex w-full max-w-[1800px] flex-col gap-6">
@@ -190,7 +296,7 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={handleOpenStatusColors}
-              className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
+              className="cursor-pointer rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
             >
               Status Colors
             </button>
@@ -282,7 +388,7 @@ export default function SettingsPage() {
                 type="button"
                 onClick={() => setIsStatusColorsOpen(false)}
                 disabled={isSaving || isLoadingStatusColors}
-                className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="cursor-pointer rounded-xl border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -291,7 +397,7 @@ export default function SettingsPage() {
                 type="button"
                 onClick={handleSaveStatusColors}
                 disabled={isSaving || isLoadingStatusColors}
-                className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="cursor-pointer rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSaving ? "Saving..." : "Save"}
               </button>

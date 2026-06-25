@@ -35,6 +35,7 @@ export async function GET() {
       `
       SELECT
         status_id,
+        status_name,
         color_hex
       FROM status_colors
       ORDER BY status_id ASC
@@ -45,7 +46,7 @@ export async function GET() {
       success: true,
       rows: rows.map((row) => ({
         id: row.status_id,
-        name: row.status,
+        name: row.status_name,
         color: row.color_hex,
       })),
     });

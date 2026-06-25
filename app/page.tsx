@@ -23,7 +23,11 @@ type OrderSpreadsheetRow = {
   product_total_ex_tax: string | null;
   product_total_inc_tax: string | null;
   product_sku: string | null;
+  is_rush?: boolean | number | null;
 };
+
+const TABLE_BORDER_COLOR_CLASS = "border-zinc-800";
+const TABLE_CELL_BORDER_CLASS = `border ${TABLE_BORDER_COLOR_CLASS}`;
 
 const columns: {
   key: keyof OrderSpreadsheetRow;
@@ -48,6 +52,23 @@ const columns: {
   { key: "product_total_inc_tax", label: "Product Total Inc Tax" },
   { key: "product_sku", label: "Product SKU" },
 ];
+
+const hiddenColumnKeys: (keyof OrderSpreadsheetRow)[] = [
+  "date_created",
+  "status_id",
+  "subtotal_ex_tax",
+  "product_total_ex_tax",
+  "product_total_inc_tax",
+  "custom_status",
+];
+
+const visibleColumns = columns.filter(
+  (column) => !hiddenColumnKeys.includes(column.key)
+);
+
+const visibleColumnsAfterOrderId = visibleColumns.filter(
+  (column) => column.key !== "id"
+);
 
 type OrderStatusOption = {
   id: number;
@@ -87,6 +108,10 @@ function getRowName(row: OrderSpreadsheetRow) {
   return row.customer_name || "";
 }
 
+function getIsRush(row: OrderSpreadsheetRow) {
+  return row.is_rush === true || row.is_rush === 1;
+}
+
 export default function Home() {
   const [rows, setRows] = useState<OrderSpreadsheetRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -97,8 +122,68 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState("");
 
   const [savingOrderIds, setSavingOrderIds] = useState<number[]>([]);
+  const [savingRushOrderIds, setSavingRushOrderIds] = useState<number[]>([]);
   const [statusUpdateMessage, setStatusUpdateMessage] = useState("");
-  const [statusColorMap, setStatusColorMap] = useState<Record<number, string>>({});
+  const [statusColorMap, setStatusColorMap] = useState<Record<number, string>>(
+    {}
+  );
+
+  const [selectedOrderDetails, setSelectedOrderDetails] =
+    useState<OrderSpreadsheetRow | null>(null);
+
+  const handleSubmitAuditLog = async ({
+    entity_type,
+    entity_id,
+    action,
+    field_name = null,
+    old_value = null,
+    new_value = null,
+    metadata = null,
+  }: {
+    entity_type: string;
+    entity_id: number;
+    action: string;
+    field_name?: string | null;
+    old_value?: string | number | boolean | null;
+    new_value?: string | number | boolean | null;
+    metadata?: unknown;
+  }) => {
+    try {
+      const response = await fetch("/api/sonic/update-audit-log", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          entity_type,
+          entity_id,
+          action,
+          field_name,
+          old_value,
+          new_value,
+          metadata,
+        }),
+      });
+
+      const rawText = await response.text();
+
+      let data: any;
+
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        throw new Error(rawText || "Server returned a non-JSON response.");
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to submit audit log.");
+      }
+
+      return data;
+    } catch (error) {
+      console.error("Failed to submit audit log:", error);
+    }
+  };
 
   const handleLoadStatusColors = async () => {
     try {
@@ -188,6 +273,8 @@ export default function Home() {
       return;
     }
 
+    const existingOrder = rows.find((row) => row.id === orderId);
+
     setSavingOrderIds((current) => [...current, orderId]);
     setStatusUpdateMessage("");
     setErrorMessage("");
@@ -219,6 +306,39 @@ export default function Home() {
         throw new Error(data.error || "Failed to update order status.");
       }
 
+      await handleSubmitAuditLog({
+        entity_type: "order",
+        entity_id: orderId,
+
+        action: "order_status_changed",
+
+        field_name: "status",
+        old_value: existingOrder?.status ?? null,
+        new_value: selectedStatus.name,
+
+        metadata: {
+          order_id: orderId,
+
+          old_status_id: existingOrder?.status_id ?? null,
+          old_status: existingOrder?.status ?? null,
+
+          new_status_id: selectedStatus.id,
+          new_status: selectedStatus.name,
+
+          customer_id: existingOrder?.customer_id ?? null,
+          customer_name: existingOrder?.customer_name ?? null,
+          customer_email: existingOrder?.customer_email ?? null,
+          customer_phone: existingOrder?.customer_phone ?? null,
+          customer_company: existingOrder?.customer_company ?? null,
+
+          product_name: existingOrder?.product_name ?? null,
+          product_quantity: existingOrder?.product_quantity ?? null,
+          product_sku: existingOrder?.product_sku ?? null,
+
+          source: "orders_table_status_dropdown",
+        },
+      });
+
       setRows((currentRows) =>
         currentRows.map((row) =>
           row.id === orderId
@@ -242,6 +362,107 @@ export default function Home() {
       );
     } finally {
       setSavingOrderIds((current) => current.filter((id) => id !== orderId));
+    }
+  };
+
+  const handleToggleRushOrder = async (orderId: number, nextIsRush: boolean) => {
+    setSavingRushOrderIds((current) => [...current, orderId]);
+    setStatusUpdateMessage("");
+    setErrorMessage("");
+
+    const previousRows = rows;
+    const existingOrder = rows.find((row) => row.id === orderId);
+    const previousIsRush = existingOrder ? getIsRush(existingOrder) : null;
+
+    setRows((currentRows) =>
+      currentRows.map((row) =>
+        row.id === orderId
+          ? {
+              ...row,
+              is_rush: nextIsRush,
+            }
+          : row
+      )
+    );
+
+    try {
+      const response = await fetch("/api/sonic/update-rush-order", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderId,
+          isRush: nextIsRush,
+        }),
+      });
+
+      const rawText = await response.text();
+
+      let data: any;
+
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        throw new Error(rawText || "Server returned a non-JSON response.");
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update rush order.");
+      }
+
+      await handleSubmitAuditLog({
+        entity_type: "order",
+        entity_id: orderId,
+
+        action: "rush_toggled",
+
+        field_name: "is_rush",
+        old_value: previousIsRush,
+        new_value: nextIsRush,
+
+        metadata: {
+          order_id: orderId,
+
+          old_is_rush: previousIsRush,
+          new_is_rush: nextIsRush,
+
+          status_id: existingOrder?.status_id ?? null,
+          status: existingOrder?.status ?? null,
+
+          customer_id: existingOrder?.customer_id ?? null,
+          customer_name: existingOrder?.customer_name ?? null,
+          customer_email: existingOrder?.customer_email ?? null,
+          customer_phone: existingOrder?.customer_phone ?? null,
+          customer_company: existingOrder?.customer_company ?? null,
+
+          product_name: existingOrder?.product_name ?? null,
+          product_quantity: existingOrder?.product_quantity ?? null,
+          product_sku: existingOrder?.product_sku ?? null,
+
+          source: "orders_table_rush_toggle",
+        },
+      });
+
+      setStatusUpdateMessage(
+        nextIsRush
+          ? `Order ${orderId} marked as rush.`
+          : `Order ${orderId} removed from rush.`
+      );
+    } catch (error) {
+      console.error(error);
+
+      setRows(previousRows);
+
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while updating the rush order."
+      );
+    } finally {
+      setSavingRushOrderIds((current) =>
+        current.filter((id) => id !== orderId)
+      );
     }
   };
 
@@ -307,7 +528,6 @@ export default function Home() {
       </div>
 
       <main className="mx-auto flex w-full max-w-[1800px] flex-col gap-6">
-
         <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h2 className="text-lg font-semibold">Filters</h2>
@@ -364,7 +584,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleClearFilters}
-              className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
+              className="cursor-pointer rounded-xl border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
             >
               Clear Filters
             </button>
@@ -392,10 +612,28 @@ export default function Home() {
             <table className="w-full border-collapse text-left text-xs">
               <thead className="sticky top-0 z-10 bg-zinc-100 text-[11px] uppercase tracking-wide text-zinc-500">
                 <tr>
-                  {columns.map((column) => (
+                  <th
+                    className={`whitespace-nowrap ${TABLE_CELL_BORDER_CLASS} px-3 py-3 font-bold`}
+                  >
+                    Order ID
+                  </th>
+
+                  <th
+                    className={`whitespace-nowrap ${TABLE_CELL_BORDER_CLASS} px-3 py-3 text-center font-bold`}
+                  >
+                    Details
+                  </th>
+
+                  <th
+                    className={`whitespace-nowrap ${TABLE_CELL_BORDER_CLASS} px-3 py-3 font-bold`}
+                  >
+                    Rush
+                  </th>
+
+                  {visibleColumnsAfterOrderId.map((column) => (
                     <th
                       key={column.key}
-                      className="whitespace-nowrap border-b border-r border-zinc-200 px-3 py-3 font-bold"
+                      className={`whitespace-nowrap ${TABLE_CELL_BORDER_CLASS} px-3 py-3 font-bold`}
                     >
                       {column.label}
                     </th>
@@ -405,69 +643,133 @@ export default function Home() {
 
               <tbody>
                 {filteredRows.length > 0 ? (
-                  filteredRows.map((row, rowIndex) => (
-                    <tr
-                      key={`${row.id}-${row.product_sku}-${rowIndex}`}
-                      className="transition hover:brightness-95"
-                      style={{
-                        backgroundColor:
-                          row.status_id !== null && row.status_id !== undefined
-                            ? statusColorMap[row.status_id] || undefined
-                            : undefined,
-                      }}
-                    >
-                      {columns.map((column) => {
-                        const isSavingThisOrder = savingOrderIds.includes(row.id);
+                  filteredRows.map((row, rowIndex) => {
+                    const isRush = getIsRush(row);
+                    const isSavingRushOrder = savingRushOrderIds.includes(
+                      row.id
+                    );
 
-                        if (column.key === "status") {
+                    return (
+                      <tr
+                        key={`${row.id}-${row.product_sku}-${rowIndex}`}
+                        className="transition hover:brightness-95"
+                        style={{
+                          backgroundColor:
+                            row.status_id !== null &&
+                            row.status_id !== undefined
+                              ? statusColorMap[row.status_id] || undefined
+                              : undefined,
+                        }}
+                      >
+                        <td
+                          className={`max-w-[160px] truncate ${TABLE_CELL_BORDER_CLASS} px-3 py-2 align-top font-semibold`}
+                          title={formatCellValue(row.id)}
+                        >
+                          {formatCellValue(row.id)}
+                        </td>
+
+                        <td
+                          className={`w-[70px] ${TABLE_CELL_BORDER_CLASS} px-3 py-2 text-center align-top`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setSelectedOrderDetails(row)}
+                            title="View order details"
+                            className="cursor-pointer inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-300 bg-white text-base font-bold leading-none text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-950"
+                          >
+                            +
+                          </button>
+                        </td>
+
+                        <td
+                          className={`w-[90px] ${TABLE_CELL_BORDER_CLASS} px-3 py-2 align-top`}
+                        >
+                          <button
+                            type="button"
+                            disabled={isSavingRushOrder}
+                            onClick={() =>
+                              handleToggleRushOrder(row.id, !isRush)
+                            }
+                            title={
+                              isRush
+                                ? "Remove rush from this order"
+                                : "Mark this order as rush"
+                            }
+                            className={`cursor-pointer flex items-center gap-2 rounded-lg border px-2 py-1 text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                              isRush
+                                ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                                : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100"
+                            }`}
+                          >
+                            <span
+                              className={`h-3 w-3 rounded-full ${
+                                isRush ? "bg-red-600" : "bg-zinc-300"
+                              }`}
+                            />
+                            {isRush ? "Rush" : "Normal"}
+                          </button>
+                        </td>
+
+                        {visibleColumnsAfterOrderId.map((column) => {
+                          const isSavingThisOrder = savingOrderIds.includes(
+                            row.id
+                          );
+
+                          if (column.key === "status") {
+                            return (
+                              <td
+                                key={`${rowIndex}-${column.key}`}
+                                className={`min-w-[220px] ${TABLE_CELL_BORDER_CLASS} px-3 py-2 align-top`}
+                              >
+                                <select
+                                  value={row.status_id ?? ""}
+                                  disabled={isSavingThisOrder}
+                                  onChange={(event) =>
+                                    handleUpdateOrderStatus(
+                                      row.id,
+                                      Number(event.target.value)
+                                    )
+                                  }
+                                  className="cursor-pointer w-full rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  <option value="" disabled>
+                                    Select status
+                                  </option>
+
+                                  {ORDER_STATUS_OPTIONS.map((status) => (
+                                    <option key={status.id} value={status.id}>
+                                      {status.name}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                {isSavingThisOrder && (
+                                  <p className="mt-1 text-[11px] text-zinc-400">
+                                    Saving...
+                                  </p>
+                                )}
+                              </td>
+                            );
+                          }
+
                           return (
                             <td
                               key={`${rowIndex}-${column.key}`}
-                              className="min-w-[220px] border-b border-r border-zinc-300 px-3 py-2 align-top"
+                              className={`cursor-pointer max-w-[320px] truncate ${TABLE_CELL_BORDER_CLASS} px-3 py-2 align-top`}
+                              title={formatCellValue(row[column.key])}
                             >
-                              <select
-                                value={row.status_id ?? ""}
-                                disabled={isSavingThisOrder}
-                                onChange={(event) =>
-                                  handleUpdateOrderStatus(row.id, Number(event.target.value))
-                                }
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                <option value="" disabled>
-                                  Select status
-                                </option>
-
-                                {ORDER_STATUS_OPTIONS.map((status) => (
-                                  <option key={status.id} value={status.id}>
-                                    {status.name}
-                                  </option>
-                                ))}
-                              </select>
-
-                              {isSavingThisOrder && (
-                                <p className="mt-1 text-[11px] text-zinc-400">Saving...</p>
-                              )}
+                              {formatCellValue(row[column.key])}
                             </td>
                           );
-                        }
-
-                        return (
-                          <td
-                            key={`${rowIndex}-${column.key}`}
-                            className="max-w-[320px] truncate border-b border-r border-zinc-100 px-3 py-2 align-top"
-                            title={formatCellValue(row[column.key])}
-                          >
-                            {formatCellValue(row[column.key])}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))
+                        })}
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
                     <td
-                      colSpan={columns.length}
-                      className="px-4 py-12 text-center text-sm text-zinc-400"
+                      colSpan={visibleColumnsAfterOrderId.length + 3}
+                      className={`px-4 py-12 text-center text-sm text-zinc-400 ${TABLE_CELL_BORDER_CLASS}`}
                     >
                       No orders match the current filters.
                     </td>
@@ -478,6 +780,89 @@ export default function Home() {
           </div>
         </div>
       </main>
+
+      {selectedOrderDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-zinc-200 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-bold text-zinc-900">
+                  Order Details
+                </h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Order #{selectedOrderDetails.id}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedOrderDetails(null)}
+                className="rounded-lg border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-auto p-5">
+              <div className="mb-5 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${
+                      getIsRush(selectedOrderDetails)
+                        ? "border-red-300 bg-red-50 text-red-700"
+                        : "border-zinc-300 bg-white text-zinc-500"
+                    }`}
+                  >
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        getIsRush(selectedOrderDetails)
+                          ? "bg-red-600"
+                          : "bg-zinc-300"
+                      }`}
+                    />
+                    {getIsRush(selectedOrderDetails)
+                      ? "Rush Order"
+                      : "Normal Order"}
+                  </span>
+
+                  <span className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">
+                    Status: {selectedOrderDetails.status || "Unknown"}
+                  </span>
+
+                  <span className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">
+                    Customer: {selectedOrderDetails.customer_name || "Unknown"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {columns.map((column) => (
+                  <div
+                    key={column.key}
+                    className="rounded-xl border border-zinc-200 bg-white p-3"
+                  >
+                    <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                      {column.label}
+                    </p>
+                    <p className="break-words text-sm font-medium text-zinc-800">
+                      {formatCellValue(selectedOrderDetails[column.key]) || "—"}
+                    </p>
+                  </div>
+                ))}
+
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                    Rush
+                  </p>
+                  <p className="break-words text-sm font-medium text-zinc-800">
+                    {getIsRush(selectedOrderDetails) ? "Yes" : "No"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import mysql, {RowDataPacket} from "mysql2/promise";
+import mysql, { RowDataPacket } from "mysql2/promise";
 
 type OrderSpreadsheetRow = RowDataPacket & {
   id: number;
@@ -15,6 +15,7 @@ type OrderSpreadsheetRow = RowDataPacket & {
   staff_notes: string | null;
   customer_message: string | null;
   custom_status: string | null;
+  is_rush: number;
   product_name: string | null;
   product_quantity: number | null;
   product_total_ex_tax: string | null;
@@ -59,6 +60,7 @@ export async function GET() {
         o.staff_notes,
         o.customer_message,
         o.custom_status,
+        o.is_rush,
 
         p.product_name,
         p.product_quantity,
