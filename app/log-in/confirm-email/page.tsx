@@ -120,7 +120,7 @@ export default function ConfirmEmailCodePage() {
             </button>
 
             <Link
-              href="/create-account"
+              href="/log-in/create-account"
               onClick={handleBackToCreateAccount}
               className="cursor-pointer rounded-xl border border-zinc-300 px-4 py-2.5 text-center text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
             >

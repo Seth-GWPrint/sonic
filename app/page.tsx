@@ -3,6 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { ORDER_STATUS_OPTIONS } from "./config/statuses";
+import OrderDetailsModal from "./components/OrderDetailsModal";
 
 type OrderSpreadsheetRow = {
   id: number;
@@ -60,6 +62,12 @@ const hiddenColumnKeys: (keyof OrderSpreadsheetRow)[] = [
   "product_total_ex_tax",
   "product_total_inc_tax",
   "custom_status",
+  "customer_id",
+  "customer_email",
+  "customer_phone",
+  "customer_company",
+  "staff_notes",
+  "customer_message",
 ];
 
 const visibleColumns = columns.filter(
@@ -80,24 +88,6 @@ type StatusColorRow = {
   name: string;
   color: string;
 };
-
-const ORDER_STATUS_OPTIONS: OrderStatusOption[] = [
-  { id: 0, name: "Incomplete" },
-  { id: 1, name: "Pending" },
-  { id: 2, name: "Shipped" },
-  { id: 3, name: "Partially Shipped" },
-  { id: 4, name: "Refunded" },
-  { id: 5, name: "Cancelled" },
-  { id: 6, name: "Declined" },
-  { id: 7, name: "Awaiting Payment" },
-  { id: 8, name: "Awaiting Pickup" },
-  { id: 9, name: "Awaiting Shipment" },
-  { id: 10, name: "Completed" },
-  { id: 11, name: "Awaiting Fulfillment" },
-  { id: 12, name: "Manual Verification Required" },
-  { id: 13, name: "Disputed" },
-  { id: 14, name: "Partially Refunded" },
-];
 
 function formatCellValue(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -781,88 +771,12 @@ export default function Home() {
         </div>
       </main>
 
-      {selectedOrderDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between border-b border-zinc-200 px-5 py-4">
-              <div>
-                <h2 className="text-lg font-bold text-zinc-900">
-                  Order Details
-                </h2>
-                <p className="mt-1 text-sm text-zinc-500">
-                  Order #{selectedOrderDetails.id}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedOrderDetails(null)}
-                className="rounded-lg border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="max-h-[70vh] overflow-auto p-5">
-              <div className="mb-5 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${
-                      getIsRush(selectedOrderDetails)
-                        ? "border-red-300 bg-red-50 text-red-700"
-                        : "border-zinc-300 bg-white text-zinc-500"
-                    }`}
-                  >
-                    <span
-                      className={`h-2.5 w-2.5 rounded-full ${
-                        getIsRush(selectedOrderDetails)
-                          ? "bg-red-600"
-                          : "bg-zinc-300"
-                      }`}
-                    />
-                    {getIsRush(selectedOrderDetails)
-                      ? "Rush Order"
-                      : "Normal Order"}
-                  </span>
-
-                  <span className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">
-                    Status: {selectedOrderDetails.status || "Unknown"}
-                  </span>
-
-                  <span className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">
-                    Customer: {selectedOrderDetails.customer_name || "Unknown"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                {columns.map((column) => (
-                  <div
-                    key={column.key}
-                    className="rounded-xl border border-zinc-200 bg-white p-3"
-                  >
-                    <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                      {column.label}
-                    </p>
-                    <p className="break-words text-sm font-medium text-zinc-800">
-                      {formatCellValue(selectedOrderDetails[column.key]) || "—"}
-                    </p>
-                  </div>
-                ))}
-
-                <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                    Rush
-                  </p>
-                  <p className="break-words text-sm font-medium text-zinc-800">
-                    {getIsRush(selectedOrderDetails) ? "Yes" : "No"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <OrderDetailsModal
+        selectedOrderDetails={selectedOrderDetails}
+        onClose={() => setSelectedOrderDetails(null)}
+        getIsRush={getIsRush}
+        formatCellValue={formatCellValue}
+      />
     </div>
   );
 }

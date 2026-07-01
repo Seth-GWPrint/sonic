@@ -70,6 +70,8 @@ export async function proxy(request: NextRequest) {
     "/api/sonic/forgot-password",
     "/api/sonic/confirm-email",
     "/api/sonic/validate-auth-token",
+
+    "/api/bigcommerce/order-created",
   ];
 
   const isPublicApiRoute = publicApiRoutes.includes(pathname);

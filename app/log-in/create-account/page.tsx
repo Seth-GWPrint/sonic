@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function CreateAccountPage() {
-  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -15,7 +15,7 @@ export default function CreateAccountPage() {
   function handleCreateAccount() {
     router.push("/log-in/confirm-email");
     console.log("Create account clicked", {
-      name,
+      username,
       email,
       password,
       confirmPassword,
@@ -52,13 +52,13 @@ export default function CreateAccountPage() {
           <div className="flex flex-col gap-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-zinc-700">
-                Name
+                Username
               </label>
               <input
                 type="text"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Full name"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="Ex. user123"
                 className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-200"
               />
             </div>

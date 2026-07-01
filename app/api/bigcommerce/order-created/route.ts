@@ -18,6 +18,8 @@ function getDbConfig() {
   const user = process.env.DB_USER;
   const password = process.env.DB_PASSWORD;
   const database = process.env.DB_NAME;
+  console.log("BIGCOMMERCE WEBHOOK HIT");
+  console.log("Time:", new Date().toISOString());
 
   if (!host || !user || !password || !database) {
     throw new Error("Missing database environment variables.");
