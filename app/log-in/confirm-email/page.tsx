@@ -61,14 +61,23 @@ export default function ConfirmEmailCodePage() {
       <main className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-md items-center justify-center">
         <div className="w-full rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="mb-8 flex justify-center">
-            <Image
-              src="/sonic_dev_logo.png"
-              alt="Sonic Dev Logo"
-              width={160}
-              height={45}
-              className="h-auto w-[170px]"
-              priority
-            />
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "/";
+              }}
+              className="cursor-pointer transition-transform duration-150 hover:scale-95"
+              aria-label="Return to dashboard"
+            >
+              <Image
+                src="/sonic_dev_logo.png"
+                alt="Sonic Dev Logo"
+                width={140}
+                height={40}
+                className="h-auto w-[160px]"
+                priority
+              />
+            </button>
           </div>
 
           <div className="mb-6 text-center">

@@ -37,7 +37,7 @@ export async function PATCH(request: Request) {
 
     const [result] = await connection.execute<ResultSetHeader>(
       `
-      UPDATE bigcommerce_orders
+      UPDATE orders
       SET is_rush = ?
       WHERE id = ?
       `,

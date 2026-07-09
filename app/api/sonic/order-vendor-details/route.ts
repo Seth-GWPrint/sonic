@@ -12,6 +12,7 @@ type OrderVendorDetailsRow = {
   shipping_day: string | null;
   price: string | number | null;
   vendor_location: string | null;
+  selected_vendor: number | boolean | null;
 };
 
 function getDbConfig() {
@@ -39,6 +40,7 @@ function formatRow(row: OrderVendorDetailsRow) {
     shipping_day: row.shipping_day ?? "",
     price: row.price ?? "",
     vendor_location: row.vendor_location ?? "",
+    selected_vendor: Boolean(row.selected_vendor),
   };
 }
 
@@ -47,6 +49,7 @@ function blankVendorDetails(orderId: number | null = null) {
     order_id: orderId,
     vendor_name: "",
     vendor_location: "",
+    selected_vendor: false,
   };
 }
 
@@ -87,8 +90,9 @@ export async function GET(req: NextRequest) {
         prod_day,
         shipping_day,
         price,
-        vendor_location
-      FROM order_vendor_details
+        vendor_location,
+        selected_vendor
+      FROM quotes
       WHERE order_id = ?
       ORDER BY id ASC
       `,
@@ -137,6 +141,7 @@ export async function POST(req: NextRequest) {
     const shippingDay = body.shippingDay ?? "";
     const price = body.price === "" || body.price == null ? null : Number(body.price);
     const vendorLocation = body.vendorLocation ?? "";
+    const selectedVendor = Boolean(body.selectedVendor ?? body.selected_vendor ?? false);
 
     if (!orderId || Number.isNaN(orderId)) {
       return NextResponse.json(
@@ -152,7 +157,7 @@ export async function POST(req: NextRequest) {
 
     const [result] = await connection.execute<mysql.ResultSetHeader>(
       `
-      INSERT INTO order_vendor_details (
+      INSERT INTO quotes (
         order_id,
         sku,
         description,
@@ -161,9 +166,10 @@ export async function POST(req: NextRequest) {
         prod_day,
         shipping_day,
         price,
-        vendor_location
+        vendor_location,
+        selected_vendor
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         orderId,
@@ -175,6 +181,7 @@ export async function POST(req: NextRequest) {
         shippingDay,
         price,
         vendorLocation,
+        selectedVendor,
       ]
     );
 
@@ -189,6 +196,7 @@ export async function POST(req: NextRequest) {
       shipping_day: shippingDay,
       price: price ?? "",
       vendor_location: vendorLocation,
+      selected_vendor: selectedVendor,
     };
 
     return NextResponse.json({
@@ -222,13 +230,17 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
 
     const id = body.id ? Number(body.id) : null;
-    const orderId = Number(body.orderId);
+    const orderId = Number(body.orderId ?? body.order_id);
 
     const sku = body.sku ?? "";
     const description = body.description ?? "";
-    const printDetails = body.printDetails ?? "";
-    const vendorName = body.vendorName ?? "";
-    const vendorLocation = body.vendorLocation ?? "";
+    const printDetails = body.printDetails ?? body.print_details ?? "";
+    const vendorName = body.vendorName ?? body.vendor_name ?? "";
+    const prodDay = body.prodDay ?? body.prod_day ?? "";
+    const shippingDay = body.shippingDay ?? body.shipping_day ?? "";
+    const price = body.price === "" || body.price == null ? null : Number(body.price);
+    const vendorLocation = body.vendorLocation ?? body.vendor_location ?? "";
+    const selectedVendor = Boolean(body.selectedVendor ?? body.selected_vendor ?? false);
 
     if (!orderId || Number.isNaN(orderId)) {
       return NextResponse.json(
@@ -244,16 +256,31 @@ export async function PATCH(req: NextRequest) {
 
     // If an id is provided, update that specific vendor quote row.
     if (id && !Number.isNaN(id)) {
+      if (selectedVendor) {
+        await connection.execute(
+          `
+          UPDATE quotes
+          SET selected_vendor = FALSE
+          WHERE order_id = ?
+          `,
+          [orderId]
+        );
+      }
+
       const [result] = await connection.execute<mysql.ResultSetHeader>(
         `
-        UPDATE order_vendor_details
+        UPDATE quotes
         SET
           order_id = ?,
           sku = ?,
           description = ?,
           print_details = ?,
           vendor_name = ?,
-          vendor_location = ?
+          prod_day = ?,
+          shipping_day = ?,
+          price = ?,
+          vendor_location = ?,
+          selected_vendor = ?
         WHERE id = ?
         `,
         [
@@ -262,7 +289,11 @@ export async function PATCH(req: NextRequest) {
           description,
           printDetails,
           vendorName,
+          prodDay,
+          shippingDay,
+          price,
           vendorLocation,
+          selectedVendor,
           id,
         ]
       );
@@ -271,7 +302,7 @@ export async function PATCH(req: NextRequest) {
       if (result.affectedRows === 0) {
         const [insertResult] = await connection.execute<mysql.ResultSetHeader>(
           `
-          INSERT INTO order_vendor_details (
+          INSERT INTO quotes (
             order_id,
             sku,
             description,
@@ -308,27 +339,34 @@ export async function PATCH(req: NextRequest) {
         });
       }
 
+      const vendorQuote = {
+        id,
+        order_id: orderId,
+        sku,
+        description,
+        print_details: printDetails,
+        vendor_name: vendorName,
+        prod_day: prodDay,
+        shipping_day: shippingDay,
+        price: price ?? "",
+        vendor_location: vendorLocation,
+        selected_vendor: selectedVendor,
+      };
+
       return NextResponse.json({
         success: true,
         created: false,
         updated: true,
         id,
-        data: {
-          id,
-          order_id: orderId,
-          sku,
-          description,
-          print_details: printDetails,
-          vendor_name: vendorName,
-          vendor_location: vendorLocation,
-        },
+        data: vendorQuote,
+        vendorQuote,
       });
     }
 
     // If no id is provided, create a new vendor quote row.
     const [insertResult] = await connection.execute<mysql.ResultSetHeader>(
       `
-      INSERT INTO order_vendor_details (
+      INSERT INTO quotes (
         order_id,
         sku,
         description,

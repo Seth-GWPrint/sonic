@@ -16,6 +16,8 @@ type OrderSpreadsheetRow = RowDataPacket & {
   customer_message: string | null;
   custom_status: string | null;
   is_rush: number;
+  proof_approved_date: string | null;
+  location: string | null;
   product_name: string | null;
   product_quantity: number | null;
   product_total_ex_tax: string | null;
@@ -61,6 +63,9 @@ export async function GET() {
         o.customer_message,
         o.custom_status,
         o.is_rush,
+        o.proof_approved_date,
+
+        selected_vendor_details.location AS location,
 
         p.product_name,
         p.product_quantity,
@@ -68,13 +73,23 @@ export async function GET() {
         p.product_total_inc_tax,
         p.product_sku
 
-      FROM bigcommerce_orders o
+      FROM orders o
 
-      LEFT JOIN bigcommerce_customers c
+      LEFT JOIN customers c
         ON c.id = o.customer_id
 
-      LEFT JOIN bigcommerce_products p
+      LEFT JOIN products p
         ON p.order_id = o.id
+
+      LEFT JOIN (
+        SELECT
+          order_id,
+          MIN(vendor_name) AS location
+        FROM quotes
+        WHERE selected_vendor = 1
+        GROUP BY order_id
+      ) selected_vendor_details
+        ON selected_vendor_details.order_id = o.id
 
       ORDER BY o.id DESC, p.id ASC
 

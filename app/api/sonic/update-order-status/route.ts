@@ -54,13 +54,17 @@ export async function PATCH(request: Request) {
 
     const [result] = await connection.execute<ResultSetHeader>(
       `
-      UPDATE bigcommerce_orders
+      UPDATE orders
       SET
         status_id = ?,
-        status = ?
+        status = ?,
+        proof_approved_date = CASE
+          WHEN ? = 5 AND proof_approved_date IS NULL THEN NOW()
+          ELSE proof_approved_date
+        END
       WHERE id = ?
       `,
-      [statusId, status, orderId]
+      [statusId, status, statusId, orderId]
     );
 
     if (result.affectedRows === 0) {
@@ -73,11 +77,28 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const [updatedRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `
+      SELECT
+        id,
+        status_id,
+        status,
+        proof_approved_date
+      FROM orders
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [orderId]
+    );
+
+    const updatedOrder = updatedRows[0];
+
     return NextResponse.json({
       success: true,
       orderId,
-      statusId,
-      status,
+      statusId: updatedOrder?.status_id ?? statusId,
+      status: updatedOrder?.status ?? status,
+      proofApprovedDate: updatedOrder?.proof_approved_date ?? null,
       affectedRows: result.affectedRows,
     });
   } catch (error) {
