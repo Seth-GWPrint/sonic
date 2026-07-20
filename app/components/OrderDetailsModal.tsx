@@ -4,55 +4,11 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import DefineVendorQuote, { type VendorQuoteDetails } from "./DefineVendorQuote";
+import type { Vendor, OrderProductOption, OrderOptionsProduct, OrderDetailsModalProps } from "../types/OrderTypes";
 
 const VENDORS_API_URL = "/api/sonic/vendors";
 
 type VendorQuote = VendorQuoteDetails;
-
-type Vendor = {
-  id: number | string;
-  vendor_name?: string | null;
-  name?: string | null;
-  vendor_location?: string | null;
-  location?: string | null;
-  contact_name?: string | null;
-  contact_email?: string | null;
-  contact_phone?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  notes?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type OrderProductOption = {
-  id?: number | string;
-  option_id?: number | string;
-  display_name?: string | null;
-  name?: string | null;
-  option_name?: string | null;
-  display_value?: string | number | null;
-  value?: string | number | null;
-  option_value?: string | number | null;
-};
-
-type OrderOptionsProduct = {
-  id?: number | string;
-  product_id?: number | string;
-  line_item_id?: number | string;
-  name?: string | null;
-  product_name?: string | null;
-  sku?: string | null;
-  product_sku?: string | null;
-  options?: OrderProductOption[];
-};
-
-type OrderDetailsModalProps<TOrder> = {
-  selectedOrderDetails: TOrder | null;
-  onClose: () => void;
-  getIsRush: (order: TOrder) => boolean;
-  formatCellValue: (value: unknown) => string;
-};
 
 export default function OrderDetailsModal<
   TOrder extends {
@@ -92,17 +48,16 @@ export default function OrderDetailsModal<
   onClose,
   getIsRush,
   formatCellValue,
+  shippingAddress,
+  onStaffNotesUpdated,
 }: OrderDetailsModalProps<TOrder>) {
   const [isAddVendorQuoteOpen, setIsAddVendorQuoteOpen] = useState(false);
-  const [vendorQuoteModalMode, setVendorQuoteModalMode] = useState<
-    "vendor-list" | "new-vendor"
-  >("vendor-list");
+  const [vendorQuoteModalMode, setVendorQuoteModalMode] = useState<"vendor-list" | "new-vendor">("vendor-list");
 
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isLoadingVendors, setIsLoadingVendors] = useState(false);
   const [isSavingNewVendor, setIsSavingNewVendor] = useState(false);
-  const [isCreatingQuoteFromVendor, setIsCreatingQuoteFromVendor] =
-    useState(false);
+  const [isCreatingQuoteFromVendor, setIsCreatingQuoteFromVendor] = useState(false);
   const [vendorListError, setVendorListError] = useState("");
 
   const [newVendorName, setNewVendorName] = useState("");
@@ -115,14 +70,20 @@ export default function OrderDetailsModal<
   const [vendorQuotes, setVendorQuotes] = useState<VendorQuote[]>([]);
   const [isLoadingVendorQuotes, setIsLoadingVendorQuotes] = useState(false);
   const [vendorQuoteError, setVendorQuoteError] = useState("");
-  const [selectedVendorQuote, setSelectedVendorQuote] =
-    useState<VendorQuote | null>(null);
+  const [selectedVendorQuote, setSelectedVendorQuote] = useState<VendorQuote | null>(null);
 
-  const [orderOptionsProducts, setOrderOptionsProducts] = useState<
-    OrderOptionsProduct[]
-  >([]);
+  const [orderOptionsProducts, setOrderOptionsProducts] = useState<OrderOptionsProduct[]>([]);
   const [isLoadingOrderOptions, setIsLoadingOrderOptions] = useState(false);
   const [orderOptionsError, setOrderOptionsError] = useState("");
+
+  const [orderNotes, setOrderNotes] = useState("");
+  const [savedOrderNotes, setSavedOrderNotes] = useState("");
+  const [isSavingOrderNotes, setIsSavingOrderNotes] = useState(false);
+  const [orderNotesError, setOrderNotesError] = useState("");
+  const [orderNotesSuccess, setOrderNotesSuccess] = useState("");
+
+  const [orderNotesLastEditedBy, setOrderNotesLastEditedBy] = useState<string | null>(null);
+  const [isLoadingOrderNotesEditor, setIsLoadingOrderNotesEditor] = useState(false);
 
   useEffect(() => {
     const orderId = selectedOrderDetails?.id;
@@ -176,24 +137,132 @@ export default function OrderDetailsModal<
 
   useEffect(() => {
     const orderId = selectedOrderDetails?.id;
-
-    if (!orderId) {
-      setOrderOptionsProducts([]);
-      setOrderOptionsError("");
+ 
+    if (orderId === undefined || orderId === null || orderId === "") {
+      setOrderNotesLastEditedBy(null);
+      setIsLoadingOrderNotesEditor(false);
       return;
     }
 
-    async function loadOrderOptions() {
+    const controller = new AbortController();
+
+    async function loadLastOrderNotesEditor() {
       try {
-        setIsLoadingOrderOptions(true);
-        setOrderOptionsError("");
+        setIsLoadingOrderNotesEditor(true);
+        setOrderNotesLastEditedBy(null);
+
+        const response = await fetch("/api/sonic/pull-audit-log", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+
+        const data: {
+          success?: boolean;
+          error?: string;
+          auditLog?: Array<{
+            id: number;
+            username: string | null;
+            entity_type: string | null;
+            entity_id: number | string | null;
+            action: string | null;
+            field_name: string | null;
+            created_at: string | null;
+          }>;
+        } | null = await response.json().catch(() => null);
+
+        if (!response.ok || data?.success === false) {
+          throw new Error(
+            data?.error || "Failed to load the order notes editor."
+          );
+        }
+
+        const auditRows = Array.isArray(data?.auditLog)
+          ? data.auditLog
+          : [];
+
+        const mostRecentNotesAudit = auditRows
+          .filter((audit) => {
+            return (
+              audit.entity_type === "order" &&
+              String(audit.entity_id) === String(orderId) &&
+              audit.field_name === "staff_notes"
+            );
+          })
+          .sort((firstAudit, secondAudit) => {
+            const firstDate = firstAudit.created_at
+              ? new Date(firstAudit.created_at).getTime()
+              : 0;
+
+            const secondDate = secondAudit.created_at
+              ? new Date(secondAudit.created_at).getTime()
+              : 0;
+
+            if (secondDate !== firstDate) {
+              return secondDate - firstDate;
+            }
+
+            return secondAudit.id - firstAudit.id;
+          })[0];
+
+        const username = mostRecentNotesAudit?.username?.trim();
+
+        setOrderNotesLastEditedBy(username || null);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        console.error("Load order notes last editor failed:", error);
+        setOrderNotesLastEditedBy(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingOrderNotesEditor(false);
+        }
+      }
+    }
+
+    loadLastOrderNotesEditor();
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedOrderDetails?.id]);
+
+  useEffect(() => {
+    const staffNotes = selectedOrderDetails?.staff_notes ?? "";
+
+    setOrderNotes(staffNotes);
+    setSavedOrderNotes(staffNotes);
+    setOrderNotesError("");
+    setOrderNotesSuccess("");
+  }, [selectedOrderDetails?.id, selectedOrderDetails?.staff_notes]);
+
+  useEffect(() => {
+    const orderId = selectedOrderDetails?.id;
+
+    if (orderId === undefined || orderId === null || orderId === "") {
+      setOrderNotesLastEditedBy(null);
+      setIsLoadingOrderNotesEditor(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadLastOrderNotesEditor() {
+      try {
+        setIsLoadingOrderNotesEditor(true);
 
         const response = await fetch(
-          `/api/bigcommerce/order-options?order_id=${encodeURIComponent(
+          `/api/sonic/order-notes-last-editor?orderId=${encodeURIComponent(
             String(orderId)
           )}`,
           {
+            method: "GET",
             cache: "no-store",
+            credentials: "same-origin",
+            signal: controller.signal,
           }
         );
 
@@ -201,29 +270,35 @@ export default function OrderDetailsModal<
 
         if (!response.ok || data?.success === false) {
           throw new Error(
-            data?.error || data?.message || "Failed to load order options."
+            data?.error || "Failed to load the order notes editor."
           );
         }
 
-        setOrderOptionsProducts(
-          Array.isArray(data?.products) ? data.products : []
-        );
+        // Only set it if we actually found an editor string, otherwise fall back gracefully
+        if (typeof data?.lastEditedBy === "string" && data.lastEditedBy.trim() !== "") {
+          setOrderNotesLastEditedBy(data.lastEditedBy.trim());
+        } else {
+          setOrderNotesLastEditedBy(null);
+        }
       } catch (error) {
-        console.error("Load order options failed:", error);
-
-        setOrderOptionsProducts([]);
-        setOrderOptionsError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load order options."
-        );
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        console.error("Load order notes last editor failed:", error);
+        setOrderNotesLastEditedBy(null);
       } finally {
-        setIsLoadingOrderOptions(false);
+        if (!controller.signal.aborted) {
+          setIsLoadingOrderNotesEditor(false);
+        }
       }
     }
 
-    loadOrderOptions();
-  }, [selectedOrderDetails?.id]);
+    loadLastOrderNotesEditor();
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedOrderDetails?.id]); // Keeps reference stability checked solely against the ID primitives
 
   if (!selectedOrderDetails) {
     return null;
@@ -424,6 +499,67 @@ export default function OrderDetailsModal<
     }
   }
 
+  async function handleSaveOrderNotes() {
+    const orderId = selectedOrderDetails?.id;
+
+    if (!orderId) {
+      setOrderNotesError("No order is currently selected.");
+      return;
+    }
+
+    try {
+      setIsSavingOrderNotes(true);
+      setOrderNotesError("");
+      setOrderNotesSuccess("");
+
+      const response = await fetch("/api/sonic/update-order-notes", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderId,
+          staffNotes: orderNotes,
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || data?.success === false) {
+        throw new Error(
+          data?.error ||
+            data?.message ||
+            "Failed to update the order notes."
+        );
+      }
+
+      const updatedStaffNotes =
+        typeof data?.staff_notes === "string"
+          ? data.staff_notes
+          : orderNotes;
+
+      setOrderNotes(updatedStaffNotes);
+      setSavedOrderNotes(updatedStaffNotes);
+      setOrderNotesSuccess("Order notes saved.");
+
+      if (data?.changed !== false && typeof data?.username === "string") {
+        setOrderNotesLastEditedBy(data.username.trim() || null);
+      }
+
+      onStaffNotesUpdated?.(orderId, updatedStaffNotes);
+    } catch (error) {
+      console.error("Update order notes failed:", error);
+
+      setOrderNotesError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update the order notes."
+      );
+    } finally {
+      setIsSavingOrderNotes(false);
+    }
+  }
+
   function getMatchingOrderOptionsProduct(productRow: {
     product_id?: number | string | null;
     line_item_id?: number | string | null;
@@ -557,6 +693,76 @@ export default function OrderDetailsModal<
                     />
                   </DetailCard>
 
+                  <DetailCard title="Shipping Address">
+                    {shippingAddress ? (
+                      <>
+                        <DetailRow
+                          label="Name"
+                          value={[shippingAddress.first_name, shippingAddress.last_name]
+                            .filter(Boolean)
+                            .join(" ")}
+                        />
+
+                        <DetailRow
+                          label="Company"
+                          value={shippingAddress.company}
+                        />
+
+                        <DetailRow
+                          label="Address"
+                          value={shippingAddress.street_1}
+                        />
+
+                        {shippingAddress.street_2 && (
+                          <DetailRow
+                            label="Address 2"
+                            value={shippingAddress.street_2}
+                          />
+                        )}
+
+                        <DetailRow
+                          label="City"
+                          value={shippingAddress.city}
+                        />
+
+                        <DetailRow
+                          label="State"
+                          value={shippingAddress.state}
+                        />
+
+                        <DetailRow
+                          label="ZIP"
+                          value={shippingAddress.zip}
+                        />
+
+                        <DetailRow
+                          label="Country"
+                          value={shippingAddress.country}
+                        />
+
+                        <DetailRow
+                          label="Phone"
+                          value={shippingAddress.phone}
+                        />
+
+                        <DetailRow
+                          label="Email"
+                          value={shippingAddress.email}
+                          breakAll
+                        />
+
+                        <DetailRow
+                          label="Method"
+                          value={shippingAddress.shipping_method}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-xs font-semibold text-zinc-500">
+                        No shipping address found.
+                      </p>
+                    )}
+                  </DetailCard>
+
                   <DetailCard title="Order">
                     <DetailRow
                       label="Date"
@@ -641,33 +847,49 @@ export default function OrderDetailsModal<
                   })}
                 </div>
 
-                {(selectedOrderDetails.staff_notes ||
-                  selectedOrderDetails.customer_message) && (
-                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                    {selectedOrderDetails.staff_notes && (
-                      <TextCard title="Staff Notes">
-                        {selectedOrderDetails.staff_notes}
-                      </TextCard>
-                    )}
-
-                    {selectedOrderDetails.customer_message && (
-                      <TextCard title="Customer Message">
-                        {selectedOrderDetails.customer_message}
-                      </TextCard>
-                    )}
+                {selectedOrderDetails.customer_message && (
+                  <div className="mt-3">
+                    <TextCard title="Customer Message">
+                      {selectedOrderDetails.customer_message}
+                    </TextCard>
                   </div>
                 )}
               </div>
 
-              <VendorQuoteManagement
-                vendorQuotes={vendorQuotes}
-                isLoading={isLoadingVendorQuotes}
-                error={vendorQuoteError}
-                onAddClick={handleOpenAddVendorQuote}
-                onVendorQuoteClick={(quote) => {
-                  setSelectedVendorQuote(quote);
-                }}
-              />
+              <div className="min-w-0">
+                <div className="grid gap-3">
+                  <OrderNotesEditor
+                    value={orderNotes}
+                    isSaving={isSavingOrderNotes}
+                    isLoadingLastEditor={isLoadingOrderNotesEditor}
+                    lastEditedBy={orderNotesLastEditedBy}
+                    hasChanges={orderNotes !== savedOrderNotes}
+                    error={orderNotesError}
+                    success={orderNotesSuccess}
+                    onChange={(value) => {
+                      setOrderNotes(value);
+                      setOrderNotesError("");
+                      setOrderNotesSuccess("");
+                    }}
+                    onSave={handleSaveOrderNotes}
+                    onCancel={() => {
+                      setOrderNotes(savedOrderNotes);
+                      setOrderNotesError("");
+                      setOrderNotesSuccess("");
+                    }}
+                  />
+
+                  <VendorQuoteManagement
+                    vendorQuotes={vendorQuotes}
+                    isLoading={isLoadingVendorQuotes}
+                    error={vendorQuoteError}
+                    onAddClick={handleOpenAddVendorQuote}
+                    onVendorQuoteClick={(quote) => {
+                      setSelectedVendorQuote(quote);
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1026,6 +1248,99 @@ function VendorPickerModal({
               </div>
             </>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OrderNotesEditor({
+  value,
+  isSaving,
+  isLoadingLastEditor,
+  lastEditedBy,
+  hasChanges,
+  error,
+  success,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  value: string;
+  isSaving: boolean;
+  isLoadingLastEditor: boolean;
+  lastEditedBy: string | null;
+  hasChanges: boolean;
+  error: string;
+  success: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="min-w-0 rounded-xl border border-zinc-200 bg-white p-3">
+      <div className="mb-3">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+          Order Notes
+        </h3>
+
+        <p className="mt-1 text-xs text-zinc-500">
+          Internal staff notes for this order.
+        </p>
+      </div>
+
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={6}
+        placeholder="Enter internal order notes..."
+        className="w-full resize-y rounded-xl border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-500"
+      />
+
+      {error && (
+        <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700">
+          {success}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          {lastEditedBy && (
+            <p className="break-words text-xs font-medium text-zinc-500">
+              Last Edited by:{" "}
+              <span className="font-bold text-zinc-700">
+                {lastEditedBy}
+              </span>
+            </p>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {hasChanges && (
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={onCancel}
+              className="cursor-pointer rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-bold text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          )}
+
+          <button
+            type="button"
+            disabled={isSaving || !hasChanges}
+            onClick={onSave}
+            className="cursor-pointer rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Save Notes"}
+          </button>
         </div>
       </div>
     </div>

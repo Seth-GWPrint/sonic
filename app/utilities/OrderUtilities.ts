@@ -6,6 +6,8 @@ import type {
   StageOption,
   OrderTableRow,
   TableColumnKey,
+  BigCommerceShippingAddress, 
+  ShippingAddressResponse 
 } from "@/app/types/OrderTypes";
 
 import { DEFAULT_ACTION_COLOR, DEFAULT_ROW_COLOR } from "@/app/constants/OrderConstants";
@@ -13,7 +15,7 @@ import { DEFAULT_ACTION_COLOR, DEFAULT_ROW_COLOR } from "@/app/constants/OrderCo
 export function formatCellValue(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value);
-}
+} 
 
 export function getRowName(row: OrderSpreadsheetRow) {
   return row.customer_name || "";
@@ -432,4 +434,57 @@ export function buildFilteredOrderRows({
       product_sku: hasMultipleProducts ? null : firstProduct.product_sku,
     };
   });
+}
+
+export async function getOrderShippingAddress(
+  orderId: number
+): Promise<BigCommerceShippingAddress | null> {
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    throw new Error("A valid order ID is required.");
+  }
+
+  const response = await fetch(
+    `/api/bigcommerce/order-shipping-address?orderId=${encodeURIComponent(
+      orderId
+    )}`,
+    {
+      method: "GET",
+      cache: "no-store",
+    }
+  );
+
+  const data = (await response.json()) as ShippingAddressResponse;
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Unable to retrieve shipping address.");
+  }
+
+  return data.shippingAddress ?? null;
+}
+
+export function formatShippingAddress(
+  address: BigCommerceShippingAddress | null | undefined
+): string {
+  if (!address) {
+    return "";
+  }
+
+  const street = [address.street_1, address.street_2]
+    .filter(Boolean)
+    .join(", ");
+
+  const cityStateZip = [
+    address.city,
+    [address.state, address.zip].filter(Boolean).join(" "),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return [street, cityStateZip, address.country]
+    .filter(Boolean)
+    .join(", ");
 }

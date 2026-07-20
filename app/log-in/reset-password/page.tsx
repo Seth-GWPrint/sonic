@@ -5,49 +5,41 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-type CreateAccountResponse = {
+type ResetPasswordResponse = {
   success: boolean;
   error?: string;
   message?: string;
-  userId?: string;
-  email?: string;
-  expiresInMinutes?: number;
 };
 
-export default function CreateAccountPage() {
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
+export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
+  const [
+    confirmPassword,
+    setConfirmPassword,
+  ] = useState("");
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
+
+  const [errorMessage, setErrorMessage] =
+    useState("");
 
   const router = useRouter();
 
-  const trimmedUsername = username.trim();
-  const trimmedEmail = email.trim().toLowerCase();
-
-  const isEmailValid =
-    trimmedEmail.length > 0 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail);
-
-  const isPasswordLongEnough = password.length >= 8;
+  const isPasswordLongEnough =
+    password.length >= 8;
 
   const doPasswordsMatch =
     confirmPassword.length > 0 &&
     password === confirmPassword;
 
-  const canCreateAccount =
-    trimmedUsername.length > 0 &&
-    isEmailValid &&
+  const canResetPassword =
     isPasswordLongEnough &&
     doPasswordsMatch &&
     !isSubmitting;
 
-  async function handleCreateAccount() {
-    if (!canCreateAccount) {
+  async function handleResetPassword() {
+    if (!canResetPassword) {
       return;
     }
 
@@ -56,60 +48,45 @@ export default function CreateAccountPage() {
 
     try {
       const response = await fetch(
-        "/api/sonic/email-confirmation-codes",
+        "/api/sonic/reset-password",
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
+          credentials: "same-origin",
           body: JSON.stringify({
-            username: trimmedUsername,
-            email: trimmedEmail,
             password,
+            confirmPassword,
           }),
         }
       );
 
       const data =
-        (await response.json()) as CreateAccountResponse;
+        (await response.json()) as ResetPasswordResponse;
 
       if (!response.ok || !data.success) {
         throw new Error(
-          data.error || "The account could not be created."
+          data.error ||
+            "Your password could not be reset."
         );
       }
 
-      if (!data.userId || !data.email) {
-        throw new Error(
-          "The server did not return the confirmation information."
-        );
-      }
-
-      sessionStorage.setItem(
-        "pending-confirmation-user-id",
-        data.userId
+      sessionStorage.removeItem(
+        "pending-password-reset-email"
       );
 
-      sessionStorage.setItem(
-        "pending-confirmation-email",
-        data.email
-      );
-
-      if (data.expiresInMinutes) {
-        sessionStorage.setItem(
-          "pending-confirmation-expires-in-minutes",
-          String(data.expiresInMinutes)
-        );
-      }
-
-      router.push("/log-in/confirm-email");
+      router.replace("/log-in");
     } catch (error) {
-      console.error("Create account error:", error);
+      console.error(
+        "Reset password page error:",
+        error
+      );
 
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "The account could not be created."
+          : "Your password could not be reset."
       );
     } finally {
       setIsSubmitting(false);
@@ -142,88 +119,28 @@ export default function CreateAccountPage() {
 
           <div className="mb-6 text-center">
             <h1 className="text-2xl font-bold">
-              Create Account
+              Reset Password
             </h1>
 
             <p className="mt-2 text-sm text-zinc-500">
-              Create a Sonic dashboard account.
+              Enter a new password for your Sonic
+              account.
             </p>
           </div>
 
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              void handleCreateAccount();
+              void handleResetPassword();
             }}
             className="flex flex-col gap-4"
           >
             <div>
               <label
-                htmlFor="username"
-                className="mb-1 block text-sm font-medium text-zinc-700"
-              >
-                Username
-              </label>
-
-              <input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(event) => {
-                  setUsername(event.target.value);
-                  setErrorMessage("");
-                }}
-                placeholder="Ex. user123"
-                autoComplete="username"
-                required
-                disabled={isSubmitting}
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-100"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="email"
-                className="mb-1 block text-sm font-medium text-zinc-700"
-              >
-                Email
-              </label>
-
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                  setErrorMessage("");
-                }}
-                placeholder="you@example.com"
-                autoComplete="email"
-                required
-                disabled={isSubmitting}
-                aria-invalid={
-                  email.length > 0 && !isEmailValid
-                }
-                className={`w-full rounded-xl border px-3 py-2 text-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-zinc-100 ${
-                  email.length > 0 && !isEmailValid
-                    ? "border-red-500 focus:border-red-500 focus:ring-red-100"
-                    : "border-zinc-300 focus:border-zinc-900 focus:ring-zinc-200"
-                }`}
-              />
-
-              {email.length > 0 && !isEmailValid && (
-                <p className="mt-1 text-xs font-medium text-red-600">
-                  Enter a valid email address.
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label
                 htmlFor="password"
                 className="mb-1 block text-sm font-medium text-zinc-700"
               >
-                Password
+                New Password
               </label>
 
               <input
@@ -234,7 +151,7 @@ export default function CreateAccountPage() {
                   setPassword(event.target.value);
                   setErrorMessage("");
                 }}
-                placeholder="Create a password"
+                placeholder="Enter your new password"
                 autoComplete="new-password"
                 required
                 minLength={8}
@@ -254,7 +171,8 @@ export default function CreateAccountPage() {
               {password.length > 0 &&
                 !isPasswordLongEnough && (
                   <p className="mt-1 text-xs font-medium text-red-600">
-                    Password must be at least 8 characters.
+                    Password must be at least 8
+                    characters.
                   </p>
                 )}
             </div>
@@ -264,7 +182,7 @@ export default function CreateAccountPage() {
                 htmlFor="confirmPassword"
                 className="mb-1 block text-sm font-medium text-zinc-700"
               >
-                Confirm Password
+                Confirm New Password
               </label>
 
               <input
@@ -272,10 +190,12 @@ export default function CreateAccountPage() {
                 type="password"
                 value={confirmPassword}
                 onChange={(event) => {
-                  setConfirmPassword(event.target.value);
+                  setConfirmPassword(
+                    event.target.value
+                  );
                   setErrorMessage("");
                 }}
-                placeholder="Confirm your password"
+                placeholder="Confirm your new password"
                 autoComplete="new-password"
                 required
                 disabled={isSubmitting}
@@ -302,7 +222,7 @@ export default function CreateAccountPage() {
             {errorMessage && (
               <div
                 role="alert"
-                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700"
+                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
               >
                 {errorMessage}
               </div>
@@ -310,12 +230,12 @@ export default function CreateAccountPage() {
 
             <button
               type="submit"
-              disabled={!canCreateAccount}
+              disabled={!canResetPassword}
               className="mt-2 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500"
             >
               {isSubmitting
-                ? "Creating Account..."
-                : "Create Account"}
+                ? "Updating Password..."
+                : "Reset Password"}
             </button>
 
             <Link
@@ -329,7 +249,7 @@ export default function CreateAccountPage() {
               className={`rounded-xl border border-zinc-300 px-4 py-2.5 text-center text-sm font-semibold text-zinc-700 transition ${
                 isSubmitting
                   ? "pointer-events-none cursor-not-allowed bg-zinc-100 opacity-60"
-                  : "cursor-pointer hover:bg-zinc-200"
+                  : "hover:bg-zinc-100"
               }`}
             >
               Back to Log In

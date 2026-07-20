@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import mysql, { RowDataPacket } from "mysql2/promise";
+import bcrypt from "bcryptjs";
 
 type UserInfoRow = RowDataPacket & {
   id: number;
   username: string;
   password: string;
   email: string;
+  userID: string;
+  email_verified_at: string | Date | null;
 };
 
 function getDbConfig() {
@@ -18,7 +21,12 @@ function getDbConfig() {
     throw new Error("Missing database environment variables.");
   }
 
-  return { host, user, password, database };
+  return {
+    host,
+    user,
+    password,
+    database,
+  };
 }
 
 export async function POST(request: Request) {
@@ -45,14 +53,16 @@ export async function POST(request: Request) {
 
     const [rows] = await connection.execute<UserInfoRow[]>(
       `
-      SELECT
-        username,
-        password,
-        email,
-        userID
-      FROM user_info
-      WHERE username = ?
-      LIMIT 1
+        SELECT
+          id,
+          username,
+          password,
+          email,
+          userID,
+          email_verified_at
+        FROM user_info
+        WHERE username = ?
+        LIMIT 1
       `,
       [username]
     );
@@ -70,7 +80,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const passwordMatches = password === user.password;
+    /*
+     * Accounts created through the new create-account route
+     * have bcrypt-hashed passwords.
+     */
+    const passwordMatches = await bcrypt.compare(
+      password,
+      user.password
+    );
 
     if (!passwordMatches) {
       return NextResponse.json(
@@ -80,6 +97,20 @@ export async function POST(request: Request) {
           error: "Invalid username or password.",
         },
         { status: 401 }
+      );
+    }
+
+    if (!user.email_verified_at) {
+      return NextResponse.json(
+        {
+          success: false,
+          loggedIn: false,
+          requiresEmailConfirmation: true,
+          userId: user.userID,
+          email: user.email,
+          error: "Please confirm your email before logging in.",
+        },
+        { status: 403 }
       );
     }
 
@@ -93,13 +124,17 @@ export async function POST(request: Request) {
       },
     });
 
-    response.cookies.set("sonic_auth_token", String(user.userID), {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
-    });
+    response.cookies.set(
+      "sonic_auth_token",
+      String(user.userID),
+      {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 7,
+      }
+    );
 
     return response;
   } catch (error) {
@@ -110,7 +145,9 @@ export async function POST(request: Request) {
         success: false,
         loggedIn: false,
         error:
-          error instanceof Error ? error.message : "Failed to log in.",
+          error instanceof Error
+            ? error.message
+            : "Failed to log in.",
       },
       { status: 500 }
     );

@@ -65,6 +65,11 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  console.log("[Webhook] Request received", {
+    time: new Date().toISOString(),
+    hasSecretHeader: Boolean(req.headers.get("x-webhook-secret")),
+  });
+
   let orderId: number | null = null;
 
   try {
@@ -128,7 +133,7 @@ export async function POST(req: NextRequest) {
 
       await connection.execute(
         `
-        INSERT INTO bigcommerce_orders (
+        INSERT INTO orders (
           id,
           customer_id,
           date_created,
@@ -166,7 +171,7 @@ export async function POST(req: NextRequest) {
       if (order.customer_id && Number(order.customer_id) > 0) {
         await connection.execute(
           `
-          INSERT INTO bigcommerce_customers (
+          INSERT INTO customers (
             id,
             email,
             first_name,
@@ -202,7 +207,7 @@ export async function POST(req: NextRequest) {
       for (const product of products) {
         await connection.execute(
           `
-          INSERT INTO bigcommerce_products (
+          INSERT INTO products (
             order_id,
             line_item_id,
             product_id,

@@ -3,8 +3,13 @@
 import type { Dispatch, SetStateAction } from "react";
 import ActionSelectCell from "./ActionSelectCell";
 import { TABLE_CELL_BORDER_CLASS, visibleColumnsAfterOrderId } from "../constants/OrderConstants";
-import { formatCellValue, getIsRush, getTableCellValue } from "../utilities/OrderUtilities";
-import type { OrderStatusOption, OrderSpreadsheetRow, OrderTableRow } from "../types/OrderTypes";
+import {
+  formatCellValue,
+  formatShippingAddress,
+  getIsRush,
+  getTableCellValue,
+} from "../utilities/OrderUtilities";
+import type { BigCommerceShippingAddress, OrderStatusOption, OrderSpreadsheetRow, OrderTableRow } from "../types/OrderTypes";
 
 type OrdersTableProps = {
   rows: OrderSpreadsheetRow[];
@@ -16,6 +21,10 @@ type OrdersTableProps = {
   setSelectedOrderDetails: Dispatch<SetStateAction<OrderTableRow | null>>;
   handleUpdateOrderStatus: (orderId: number, newStatusId: number) => void;
   handleToggleRushOrder: (orderId: number, nextIsRush: boolean) => void;
+  shippingAddresses: Record<
+    number,
+    BigCommerceShippingAddress | null
+  >;
 };
 
 export default function OrdersTable({
@@ -28,6 +37,7 @@ export default function OrdersTable({
   setSelectedOrderDetails,
   handleUpdateOrderStatus,
   handleToggleRushOrder,
+  shippingAddresses,
 }: OrdersTableProps) {
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
@@ -64,6 +74,12 @@ export default function OrdersTable({
                 Rush
               </th>
 
+              <th
+                className={`whitespace-nowrap ${TABLE_CELL_BORDER_CLASS} px-3 py-3 font-bold`}
+              >
+                Shipping Address
+              </th>
+
               {visibleColumnsAfterOrderId.map((column) => (
                 <th
                   key={column.key}
@@ -81,6 +97,10 @@ export default function OrdersTable({
                 const isRush = getIsRush(row);
                 const isSavingRushOrder = savingRushOrderIds.includes(row.id);
                 const rowBackgroundColor = row.stage_color_hex || "#FFFFFF";
+
+                const orderId = Number(row.id);
+                const shippingAddress = shippingAddresses[orderId];
+                const hasLoadedShippingAddress = orderId in shippingAddresses;
 
                 return (
                   <tr
@@ -136,6 +156,37 @@ export default function OrdersTable({
                         {isRush ? "Rush" : "Normal"}
                       </button>
                     </td>
+                    
+                    <td
+                      className={`max-w-[280px] ${TABLE_CELL_BORDER_CLASS} px-3 py-2 align-top`}
+                      title={
+                        formatShippingAddress(shippingAddress) || "No shipping address"
+                      }
+                    >
+                      {hasLoadedShippingAddress ? (
+                        shippingAddress ? (
+                          <div className="max-w-[280px]">
+                            <div className="truncate font-semibold text-zinc-800">
+                              {shippingAddress.street_1 || "—"}
+                            </div>
+
+                            <div className="truncate text-[11px] text-zinc-500">
+                              {[
+                                shippingAddress.city,
+                                shippingAddress.state,
+                                shippingAddress.zip,
+                              ]
+                                .filter(Boolean)
+                                .join(", ")}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400">No shipping address</span>
+                        )
+                      ) : (
+                        <span className="text-zinc-400">Loading...</span>
+                      )}
+                    </td>
 
                     {visibleColumnsAfterOrderId.map((column) => {
                       const isSavingThisOrder = savingOrderIds.includes(row.id);
@@ -182,7 +233,7 @@ export default function OrdersTable({
             ) : (
               <tr>
                 <td
-                  colSpan={visibleColumnsAfterOrderId.length + 3}
+                  colSpan={visibleColumnsAfterOrderId.length + 4}
                   className={`px-4 py-12 text-center text-sm text-zinc-400 ${TABLE_CELL_BORDER_CLASS}`}
                 >
                   {isLoading

@@ -6,6 +6,8 @@ import { useState } from "react";
 import VendorsSettings from "../components/VendorSettings";
 import StagesManager from "../components/StageSettings";
 import ActionSettings from "../components/ActionSettings";
+import AuditLog from "../components/AuditLog";
+import PricingSettings from "../components/PricingSettings";
 
 export default function SettingsPage() {
 
@@ -112,24 +114,25 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <main className="mx-auto flex w-full max-w-[1800px] flex-col gap-6">
+      <main className="mx-auto w-full max-w-[1800px]">
         {/* Page Description Box */}
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="mb-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <h1 className="text-xl font-semibold">Settings</h1>
+
           <p className="mt-1 text-sm text-zinc-500">
             Manage dashboard configuration, order statuses, and other Sonic order
             dashboard settings.
           </p>
         </div>
 
-        {/* Actions Box */}
-        <ActionSettings />
-
-        {/* Stages Box */}
-        <StagesManager />
-
-        {/* Vendors Box */}
-        <VendorsSettings />
+        {/* Settings Grid */}
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          <ActionSettings />
+          <StagesManager />
+          <VendorsSettings />
+          <AuditLog />
+          <PricingSettings />
+        </div>
       </main>
     </div>
   );

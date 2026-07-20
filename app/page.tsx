@@ -12,6 +12,7 @@ import type {
   OrderStatusOption,
   OrderSpreadsheetRow,
   StageOption,
+  BigCommerceShippingAddress,
 } from "@/app/types/OrderTypes";
 
 import {
@@ -24,6 +25,7 @@ import {
   updateOrderStatus,
   updateRushOrder,
   buildFilteredOrderRows,
+  getOrderShippingAddress,
 } from "./utilities/OrderUtilities";
 
 export default function Home() {
@@ -45,6 +47,10 @@ export default function Home() {
   const [orderStatusOptions, setOrderStatusOptions] = useState<
     OrderStatusOption[]
   >([]);
+  const [shippingAddresses, setShippingAddresses] = useState<
+    Record<number, BigCommerceShippingAddress | null>
+  >({});
+
   const [stages, setStages] = useState<StageOption[]>([]);
 
   const [selectedOrderDetails, setSelectedOrderDetails] =
@@ -74,6 +80,48 @@ export default function Home() {
     }
   };
 
+  const handleLoadShippingAddresses = async (
+    loadedRows: OrderSpreadsheetRow[]
+  ) => {
+    const uniqueOrderIds = [
+      ...new Set(
+        loadedRows
+          .map((row) => Number(row.id))
+          .filter((orderId) => Number.isInteger(orderId) && orderId > 0)
+      ),
+    ];
+
+    const results = await Promise.allSettled(
+      uniqueOrderIds.map(async (orderId) => {
+        const shippingAddress = await getOrderShippingAddress(orderId);
+
+        return {
+          orderId,
+          shippingAddress,
+        };
+      })
+    );
+
+    const loadedShippingAddresses: Record<
+      number,
+      BigCommerceShippingAddress | null
+    > = {};
+
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        loadedShippingAddresses[result.value.orderId] =
+          result.value.shippingAddress;
+      } else {
+        console.error("Failed to load a shipping address:", result.reason);
+      }
+    }
+
+    setShippingAddresses((current) => ({
+      ...current,
+      ...loadedShippingAddresses,
+    }));
+  };
+
   const handleLoadOrders = async () => {
     setIsLoading(true);
     setErrorMessage("");
@@ -82,6 +130,9 @@ export default function Home() {
       const loadedRows = await loadOrders();
 
       setRows(loadedRows);
+
+      // Do not await this, so the orders table can render immediately.
+      void handleLoadShippingAddresses(loadedRows);
     } catch (error) {
       console.error(error);
 
@@ -344,6 +395,7 @@ export default function Home() {
           orderStatusOptions={orderStatusOptions}
           savingOrderIds={savingOrderIds}
           savingRushOrderIds={savingRushOrderIds}
+          shippingAddresses={shippingAddresses}
           setSelectedOrderDetails={setSelectedOrderDetails}
           handleUpdateOrderStatus={handleUpdateOrderStatus}
           handleToggleRushOrder={handleToggleRushOrder}
@@ -352,9 +404,35 @@ export default function Home() {
 
       <OrderDetailsModal
         selectedOrderDetails={selectedOrderDetails}
+        shippingAddress={
+          selectedOrderDetails
+            ? shippingAddresses[Number(selectedOrderDetails.id)] ?? null
+            : null
+        }
         onClose={() => setSelectedOrderDetails(null)}
         getIsRush={getIsRush}
         formatCellValue={formatCellValue}
+        onStaffNotesUpdated={(orderId, staffNotes) => {
+          setRows((currentRows) =>
+            currentRows.map((row) =>
+              String(row.id) === String(orderId)
+                ? {
+                    ...row,
+                    staff_notes: staffNotes,
+                  }
+                : row
+            )
+          );
+
+          setSelectedOrderDetails((currentOrder) =>
+            currentOrder && String(currentOrder.id) === String(orderId)
+              ? {
+                  ...currentOrder,
+                  staff_notes: staffNotes,
+                }
+              : currentOrder
+          );
+        }}
       />
     </div>
   );
